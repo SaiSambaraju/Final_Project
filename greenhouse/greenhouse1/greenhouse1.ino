@@ -1,26 +1,35 @@
 #define analogRef_voltage 3.3
-#define ledPin 13
 
-const int ldrpin = A3; //pins
-const int ledstrip = 6;
-const int fanpin = 11;
-const int tempPin = A0;
-const int pumppin = 5;
+//global varaibles
+
+//sensor read pins
+const int ldrpin = A3;
 const int moisturesensor = A4;
+const int tempPin = A0;
+
+//effector pins
+const int ledstrip = 6;
+const int fanpin = 3;
+const int pumppin = 11;
+
+//dryest and wettest val of moisture sensor
 const int dryest_val = 775;
 const int wettest_val = 410;
 
+
 //calibration variables 
-int ldrvalue = 0; //global varaibles
+int ldrvalue = 0; 
 int ldrmin_value = 1023;
 int ldrmax_value = 0;
+
+
 int temperature = 0;
 int fan_same_temp_counter = 0;
 int moisture_value;
 int moisture_percent;
-int count = 0;
 bool pump_on = false;
 
+//desired conditions
 const int desired_temp = 25; 
 const int desired_moisture_percent = 30;
 
@@ -52,68 +61,59 @@ int get_moisture_perc(int moisture_raw){
 
 void setup() {
   // put your setup code here, to run once:
-  
-  //calibrate();  //calibrate
   pinMode(fanpin, OUTPUT);
-  analogWrite(fanpin, 0);
-  Serial.begin(9600);
-  analogReference(EXTERNAL);
-//  attachInterrupt(digitalPinToInterrupt(2), counter, RISING);
-  noInterrupts();
-  TCCR1A = 0;
-  TCCR1B = 0;
-  TCNT1 = 0;
-  OCR1A = 62500;
-  TCCR1B |= (1 << WGM12);
-  TCCR1B |= (1 << CS12) | (1 << CS10);
-  TIMSK1 |= (1 << OCIE1A);
-  interrupts();
-}
-
-void counter(){
-  count++;
+  pinMode(pumppin, OUTPUT);
+  pinMode(ledstrip, OUTPUT);
+//  calibrate();  //calibrate
+//  Serial.begin(9600);
+//  analogReference(EXTERNAL);
+//  noInterrupts();
+//  TCCR1A = 0;
+//  TCCR1B = 0;
+//  TCNT1 = 0;
+//  OCR1A = 62500;
+//  TCCR1B |= (1 << WGM12);
+//  TCCR1B |= (1 << CS12) | (1 << CS10);
+//  TIMSK1 |= (1 << OCIE1A);
+//  interrupts();
 }
 
 ISR(TIMER1_COMPA_vect){
   Serial.println("Hello this is an interrupt!!");
-//  //Control system 1
+  //Control system 1
   ldrvalue = analogRead(ldrpin);
-  Serial.println(ldrvalue);
-//  ldrvalue = map(constrain(ldrvalue, ldrmin_value, ldrmax_value), ldrmin_value, ldrmax_value, 255, 0);
-//  analogWrite(ledstrip, ldrvalue);
-//  
+  ldrvalue = map(constrain(ldrvalue, ldrmin_value, ldrmax_value), ldrmin_value, ldrmax_value, 255, 0);
+  analogWrite(ledstrip, ldrvalue);
+  
   //Control System 2
   temperature = get_temp_C(analogRead(tempPin));
   Serial.println(temperature);
   if(temperature > desired_temp and fan_same_temp_counter < 5){
-//    Serial.println("Fan is at 150!!!");
-    analogWrite(fanpin, 127.5);
+    analogWrite(fanpin, 150);
     fan_same_temp_counter += 1;
   }
   else if(temperature > desired_temp and fan_same_temp_counter >= 5){
+    Serial.println("Fan is at 255");
     analogWrite(fanpin, 255);
   }
   else{
-//    Serial.println("Fan is at 150!!!");
     fan_same_temp_counter = 0;
-    analogWrite(fanpin, 0);;
+    digitalWrite(fanpin, LOW);
   }
   
   //Control system 3
-  moisture_percent = get_moisture_perc(analogRead(moisturesensor));
+//  moisture_percent = get_moisture_perc(analogRead(moisturesensor));
   Serial.println(moisture_percent);
-  if(moisture_percent < desired_moisture_percent and pump_on == false){
-    analogWrite(pumppin,255);
-    pump_on = true;
-  }
-  else{
-    analogWrite(pumppin, 0);
-    pump_on = false;
-  }
-
+//  if(moisture_percent < desired_moisture_percent and pump_on == false){
+//    analogWrite(pumppin, 200);
+//    pump_on = true;
+//  }
+//  else{
+//    analogWrite(pumppin, 0);
+//    pump_on = false;
+//  }
 }
 
 void loop() {
-//  delay(1000); //can be anything
-  
+  //add mining code
 }
