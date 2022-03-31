@@ -23,7 +23,7 @@ uintDiff ducos1result = 0;
 // 40+40+20+3 is the maximum size of a job
 const uint16_t job_maxsize = 104;  
 uint8_t job[job_maxsize];
-//----------------------------------------------------------------------------
+//----------------Mining setup------------------------------------------------
 
 //sensor read pins
 const int ldrpin = A3;
@@ -142,14 +142,17 @@ void mine(){
                  + "\n");
   }
 }
-//-------------------------------------------------------------------------
+//---------------------Mining procedures------------------------------------
 
 
 
 //calibrate function
 void calibrate(){
-  Serial.println("Calibrating");
+  //calibrates for the Leds, to give a known range for their brightness to operate in
+  // Serial.println("Calibrating");
+  //loop for 5 seconds 
   while(millis() < 5000){
+    //record the highest and lowest values encountered in calibration 
     ldrvalue = analogRead(ldrpin);
     if(ldrvalue > ldrmax_value){
       ldrmax_value = ldrvalue;
@@ -158,39 +161,53 @@ void calibrate(){
       ldrmin_value = ldrvalue;
     }
   }
+  //- NOTE the user will need to shine a light source on ldr and cover it to give it a good range, for proper function.
 }
 
+//returns a temperature in celcius 
 int get_temp_C(int temp){
+  //using the analog reference voltage for extra precision
   float voltage = temp * analogRef_voltage;
   voltage = voltage/1024;
-  temp = (voltage - 0.5) * 100;
-  return temp;
+  temp = (voltage - 0.5) * 100; //conversion to celcius
+  return temp; //returns temperature
 }
 
+
+//maps the raw moisture value to a percentage, using the precomputed wettest and dryest values
 int get_moisture_perc(int moisture_raw){
   moisture_percent = map(moisture_raw, wettest_val, dryest_val, 100, 0);
   return moisture_percent;
 }
 
+
+//function for calculating water distance from ultrasonic sensor
 int get_water_distance(){
-    digitalWrite(ultra_sens_trig, LOW);
-    delayMicroseconds(2);
-    digitalWrite(ultra_sens_trig, HIGH);
-    delayMicroseconds(10);
-    digitalWrite(ultra_sens_trig, LOW);
-    int duration = pulseIn(ultra_sens_echo, HIGH);
-    int distance = duration/58.2;
-    return distance;
+
+    digitalWrite(ultra_sens_trig, LOW);//set the trigger to low
+    delayMicroseconds(2);//wait 
+
+    digitalWrite(ultra_sens_trig, HIGH);//send a signal through trigger
+    delayMicroseconds(10);//for 10 microseconds
+
+    digitalWrite(ultra_sens_trig, LOW);//then make signal low
+
+    int duration = pulseIn(ultra_sens_echo, HIGH);//work out the travel time from signal at echo pin
+    int distance = duration/58.2; //calulate distance
+
+    return distance; //returns the distance
 }
 
 void setup() {
+  //setting the pin modes for the pins being used
   pinMode(fanpin, OUTPUT);
   pinMode(pumppin, OUTPUT);
   pinMode(ledstrip, OUTPUT);
   pinMode(ultra_sens_trig, OUTPUT);
   pinMode(ultra_sens_echo, INPUT);
-  calibrate();  //calibrate
-  analogReference(EXTERNAL);
+  calibrate();  //calibrate before since millis requires interrupts
+  analogReference(EXTERNAL); //reference the 3.3v from the arduino as a reference voltage for extra percision
+
   //---------------------------------------
    DUCOID = get_DUCOID();
   // Open serial port
@@ -200,41 +217,55 @@ void setup() {
     ;  // For Arduino Leonardo or any board with the ATmega32U4
   Serial.flush(); 
   //---------------------------------------
-  noInterrupts();
-  TCCR1A = 0;
+
+  noInterrupts(); //disable interrupts
+  TCCR1A = 0; //clear these registers for timer 1 
   TCCR1B = 0;
   TCNT1 = 0;
-  OCR1A = 62500;
+  OCR1A = 62500;  //preload the compare register
   TCCR1B |= (1 << WGM12);
-  TCCR1B |= (1 << CS12) | (1 << CS10);
+  TCCR1B |= (1 << CS12) | (1 << CS10);  //enable tiemr compare interrupts
   TIMSK1 |= (1 << OCIE1A);
-  interrupts();
+  interrupts(); //enable interrupts
 }
 
+
+//Interrupt service routine
 ISR(TIMER1_COMPA_vect){  
-  //Control system 1
-  ldrvalue = analogRead(ldrpin);
+
+  //--------------Control system 1---------- LED ------------------------
+  //reads the LDR pin and maps the output signal between the calibrated maximum and minumum value
+  ldrvalue = analogRead(ldrpin); 
   ldrvalue = map(constrain(ldrvalue, ldrmin_value, ldrmax_value), ldrmin_value, ldrmax_value, 255, 0);
   analogWrite(ledstrip, ldrvalue);
-//  
-//  //Control System 2
+
+
+  //--------------Control System 2---------- FAN ------------------------
+  //reads the temperature from the sensor and converts it to celcius
   temperature = get_temp_C(analogRead(tempPin));
+
+  //if its greater than required, the fan is turned on, at a low speed
   if(temperature > desired_temp and fan_same_temp_counter < 5){
     analogWrite(fanpin, 150);
     fan_same_temp_counter += 1;
-  }
+  }//if the temperature does not cool down for 5 consequetive interrupts, the fan is span faster
   else if(temperature > desired_temp and fan_same_temp_counter >= 5){
     analogWrite(fanpin, 255);
   }
   else{
+    //once the temperature reaches desired level, the fan is turned off
     fan_same_temp_counter = 0;
     analogWrite(fanpin, 0);
   }
   
-    //Control system 3
+    //------------Control system 3---------- PUMP -----------------------
+    //get moisture percentage from reading the sensor
     moisture_percent = get_moisture_perc(analogRead(moisturesensor));
+
+    //use the ultrasonic sensor to get the level of water
     int distance_to_water = get_water_distance();
     
+    //If there is no water in the container then we don't need to turn the pump on
     if (distance_to_water >= 9){
       water_container_empty = true;
       pump_needs_on = false;  
@@ -242,29 +273,35 @@ ISR(TIMER1_COMPA_vect){
     else{
       water_container_empty = false;
     }
+    //if moisture percentage less than the threshold moisture variable we tell the pump it needs to turn on
     if(moisture_percent <= moisture_low and water_container_empty == false){
       pump_needs_on = true;  
     }
     else if(moisture_percent >= desired_moisture_percent){
-      pump_needs_on = false;
+      //the pump will need to turn on until the desired moisture level is reached
+      pump_needs_on = false; 
       pump_on = false;
     }
+   //The pump signal alternates each interrupt cycle to allow water to be absorbed by soil
    if(pump_needs_on){
+    //if the pump was off in the previous interrupt cycle it is set to on
     if(pump_on == false){
       analogWrite(pumppin, 200);
       pump_on = true;
       }
     else{
+      //if the pump was on in the pervious interrupt cycle, it is set to off, to allow water to seep through soil and be absorbed completely
       analogWrite(pumppin, 0);
       pump_on = false;
       }
     }
     else{
+      //if the pump doesn't need to turn on, the state should be reset to off.
       analogWrite(pumppin, 0);
       pump_on = false;
     }
 }
 
 void loop() {
-  mine();
+  mine(); //mine inbetween the interrupts
 }
